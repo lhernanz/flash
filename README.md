@@ -75,6 +75,7 @@ OPTIONS:
    --help|-h      Show this message
    --bootconf|-C  Copy this config file to /boot/config.txt
    --config|-c    Copy this config file to /boot/device-init.yaml (or occidentalis.txt)
+   --onlyconf|-o  Configure an already written image (useful for testing)
    --hostname|-n  Set hostname for this SD image
    --ssid|-s      Set WiFi SSID for this SD image
    --password|-p  Set WiFI password for this SD image
