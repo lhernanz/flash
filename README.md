@@ -72,17 +72,22 @@ usage: flash [options] name-of-rpi.img
 Flash a local or remote Raspberry Pi SD card image.
 
 OPTIONS:
-   --help|-h      Show this message
-   --bootconf|-C  Copy this config file to /boot/config.txt
-   --config|-c    Copy this config file to /boot/device-init.yaml (or occidentalis.txt)
-   --onlyconf|-o  Configure an already written image (useful for testing)
-   --hostname|-n  Set hostname for this SD image
-   --ssid|-s      Set WiFi SSID for this SD image
-   --password|-p  Set WiFI password for this SD image
-   --clusterlab|-l Start Cluster-Lab on boot: true or false
-   --device|-d    Card Device
-   --userdata|-u  Copy this cloud-init config file to /boot/user-data
-   --metadata|-m  Copy this cloud-init config file to /boot/meta-data
+  --help|-h       Show this message
+  --device|-d     Choose device to flash to (e.g. 'sdb' for /dev/sdb)
+  --onlyconf|-o   Configure an already written image (useful for testing)
+  --bootconf|-C   Copy this config file to /boot/config.txt
+  --hostname|-n   Set hostname for this SD image
+  --ssid|-s       Set WiFi SSID for this SD image
+  --password|-p   Set WiFI password for this SD image
+  --raspbian|-r   Raspbian mode: This will configure a raspbian image by using
+                                 use the ssid, password and hostname parameters
+                                 if present. It will also enable ssh support.
+
+Hypriot exclusive OPTIONS:
+  --config|-c     Copy this config file to /boot/device-init.yaml (or occidentalis.txt)
+  --clusterlab|-l Start Cluster-Lab on boot: true or false
+  --userdata|-u   Copy this cloud-init file to /boot/user-data
+  --metadata|-m   Copy this cloud-init file to /boot/meta-data
 
 ```
 
@@ -198,6 +203,13 @@ The boot config file config.txt has name/value pairs such as:
 max_usb_current=1
 hdmi_force_hotplug=1
 ```
+
+## Raspbian mode
+
+The option `--raspbian` can be used to write and configure a raspbian
+image. Only the ssid, password and hostname parameters are supported
+at this time. The option will also enable sshd in the image.
+
 
 ## Use cases
 
