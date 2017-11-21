@@ -22,16 +22,26 @@ Flash a local or remote Raspberry Pi SD card image.
 
 OPTIONS:
   --help|-h       Show this message
-  --bootconf|-C   Copy this config file to /boot/config.txt
-  --config|-c     Copy this config file to /boot/device-init.yaml (or occidentalis.txt)
+  --device|-d     Choose device to flash to (e.g. 'sdb' for /dev/sdb)
   --onlyconf|-o   Configure an already written image (useful for testing)
+  --bootconf|-C   Copy this config file to /boot/config.txt
   --hostname|-n   Set hostname for this SD image
   --ssid|-s       Set WiFi SSID for this SD image
   --password|-p   Set WiFI password for this SD image
+  --raspbian|-r   Raspbian mode: This will configure a raspbian image by using
+                                 use the ssid, password and hostname parameters
+                                 if present. It will also enable ssh support.
+
+Hypriot exclusive OPTIONS:
+  --config|-c     Copy this config file to /boot/device-init.yaml (or occidentalis.txt)
   --clusterlab|-l Start Cluster-Lab on boot: true or false
-  --device|-d     Choose device to flash to (e.g. 'sdb' for /dev/sdb)
   --userdata|-u   Copy this cloud-init file to /boot/user-data
   --metadata|-m   Copy this cloud-init file to /boot/meta-data
+
+
+The boot config file config.txt has name/value pairs such as:
+
+max_usb_current=1
 
 For HypriotOS devices:
 
@@ -55,12 +65,119 @@ hostname=hypriot-pi
 wifi_ssid=SSID
 wifi_password=12345
 
-The boot config file config.txt has name/value pairs such as:
-
-max_usb_current=1
-
 EOF
   exit 1
+}
+
+configure_hypriot()
+{
+
+  boot=$1
+  root=$2
+
+  if [ -f "${CONFIG_FILE}" ]; then
+    if [[ "${CONFIG_FILE}" == *"occi"* ]]; then
+      echo "Copying ${CONFIG_FILE} to ${boot}/occidentalis.txt ..."
+      cp "${CONFIG_FILE}"  "${boot}/occidentalis.txt"
+    else
+      echo "Copying ${CONFIG_FILE} to ${boot}/device-init.yaml ..."
+      cp "${CONFIG_FILE}"  "${boot}/device-init.yaml"
+    fi
+  fi
+
+  if [[ -f "${BOOT_CONF}" ]]; then
+    echo "Copying ${BOOT_CONF} to ${boot}/config.txt ..."
+    sudo cp "${BOOT_CONF}" "${boot}/config.txt"
+  fi
+
+  if [ -f "${USER_DATA}" ]; then
+    echo "Copying cloud-init ${USER_DATA} to ${boot}/user-data ..."
+    sudo cp "${USER_DATA}" "${boot}/user-data"
+  fi
+
+  if [ -f "${META_DATA}" ]; then
+    echo "Copying cloud-init ${META_DATA} to ${boot}/meta-data ..."
+    sudo cp "${META_DATA}" "${boot}/meta-data"
+  fi
+
+
+  if [ -f "${boot}/device-init.yaml" ]; then
+    echo "Setting device-init"
+    if [ ! -z "${SD_HOSTNAME}" ]; then
+      echo "  Set hostname=${SD_HOSTNAME}"
+      sudo sed -i -e "s/.*hostname:.*\$/hostname: ${SD_HOSTNAME}/" "${boot}/device-init.yaml"
+    fi
+    if [ ! -z "${WIFI_SSID}" ]; then
+      echo "  Set wlan0/ssid=${WIFI_SSID}"
+      sudo sed -i -e "s/.*wlan0:.*\$/    wlan0:/" "${boot}/device-init.yaml"
+      sudo sed -i -e "s/.*ssid:.*\$/      ssid: \"${WIFI_SSID}\"/" "${boot}/device-init.yaml"
+    fi
+    if [ ! -z "${WIFI_PASSWORD}" ]; then
+      echo "  Set wlan0/password=${WIFI_PASSWORD}"
+      sudo sed -i -e "s/.*wlan0:.*\$/    wlan0:/" "${boot}/device-init.yaml"
+      sudo sed -i -e "s/.*password:.*\$/      password: \"${WIFI_PASSWORD}\"/" "${boot}/device-init.yaml"
+    fi
+    if [ ! -z "${CLUSTERLAB}" ]; then
+      echo "  Set Cluster-Lab/run_on_boot=${CLUSTERLAB}"
+      sudo sed -i -e "s/.*run_on_boot.*\$/    run_on_boot: \"${CLUSTERLAB}\"/" "${boot}/device-init.yaml"
+    fi
+  fi
+
+  # cloud-init
+  if [ -f "${boot}/user-data" ]; then
+    if [ ! -z "${SD_HOSTNAME}" ]; then
+      echo "Set hostname=${SD_HOSTNAME}"
+      sudo sed -i -e "s/.*hostname:.*\$/hostname: ${SD_HOSTNAME}/" "${boot}/user-data"
+    fi
+
+    if [ ! -f "${boot}/meta-data" ]; then
+      echo "Creating empty meta-data"
+      sudo touch "${boot}/meta-data"
+    fi
+  fi
+  # legacy: /boot/occidentalis.txt of old Hector release
+  if [ -f "${boot}/occidentalis.txt" ]; then
+    echo "Setting Occidentalis"
+    if [ ! -z "${SD_HOSTNAME}" ]; then
+      echo "  Set hostname=${SD_HOSTNAME}"
+      sudo sed -i -e "s/.*hostname.*=.*\$/hostname=${SD_HOSTNAME}/" "${boot}/occidentalis.txt"
+    fi
+    if [ ! -z "${WIFI_SSID}" ]; then
+      echo "Set wifi_ssid=${WIFI_SSID}"
+      sudo sed -i -e "s/.*wifi_ssid.*=.*\$/wifi_ssid=${WIFI_SSID}/" "${boot}/occidentalis.txt"
+    fi
+    if [ ! -z "${WIFI_PASSWORD}" ]; then
+      echo "Set wifi_password=${WIFI_PASSWORD}"
+      sudo sed -i -e "s/.*wifi_password.*=.*\$/wifi_password=${WIFI_PASSWORD}/" "${boot}/occidentalis.txt"
+    fi
+  fi
+
+}
+
+configure_raspbian()
+{
+  boot=$1
+  root=$2
+
+  if [[ -f "${BOOT_CONF}" ]]; then
+    echo "Copying ${BOOT_CONF} to ${boot}/config.txt ..."
+    sudo cp "${BOOT_CONF}" "${boot}/config.txt"
+  fi
+
+  echo "Activating ssh"
+  sudo touch ${boot}/ssh
+
+  if [ ! -z "${SD_HOSTNAME}" ]; then
+    echo "  Set hostname=${SD_HOSTNAME}"
+    echo ${SD_HOSTNAME} | sudo tee ${root}/etc/hostname
+  fi
+
+  # Configure wifi
+  if [[ -n "${WIFI_SSID}" ]] && [[ -n "${WIFI_PASSWORD}" ]] ; then
+    echo "Creating wifi configuration"
+    wpa_passphrase ${WIFI_SSID} ${WIFI_PASSWORD} | grep -v "#psk" | \
+      sudo tee -a ${root}/etc/wpa_supplicant/wpa_supplicant.conf
+  fi
 }
 
 if ! sudo sh -c 'command -v hdparm' > /dev/null; then
@@ -85,6 +202,8 @@ do
     --device) args="${args}-d ";;
     --userdata) args="${args}-u ";;
     --metadata) args="${args}-m ";;
+    --raspbian) args="${args}-r ";;
+    --onlyconf) args="${args}-o ";;
     # pass through anything else
     *) [[ "${arg:0:1}" == "-" ]] || delim="\""
       args="${args}${delim}${arg}${delim} ";;
@@ -93,7 +212,7 @@ done
 # reset the translated args
 eval set -- "$args"
 # now we can process with getopt
-while getopts ":hc:n:s:p:C:l:d:u:m:o" opt; do
+while getopts ":hc:n:s:p:C:l:d:u:m:ro" opt; do
   case $opt in
     h)  usage ;;
     c)  CONFIG_FILE=$OPTARG ;;
@@ -105,6 +224,7 @@ while getopts ":hc:n:s:p:C:l:d:u:m:o" opt; do
     d)  DEVICE=$OPTARG ;;
     u)  USER_DATA=$OPTARG ;;
     m)  META_DATA=$OPTARG ;;
+    r)  RASPBIAN_MODE=1 ;;
     o)  CONFIGURE_ONLY=1 ;;
     \?) usage ;;
     :)
@@ -246,9 +366,9 @@ while true; do
     writable=0
   fi
 
-  echo "Unmounting ${disk} ..."
   for i in $(df |grep "${disk}" | awk '{print $1}')
   do
+    echo "Unmounting disk ${i} ..."
     sudo umount "$i"
   done
   if [ "$writable" ]; then
@@ -277,109 +397,51 @@ if [[ -z $CONFIGURE_ONLY ]] ; then
   sudo hdparm -z "${disk}"
 fi
 
-echo "Mounting Disk"
-boot=/tmp/mnt.$$
+echo "Mounting Disks in root directory /tmp/${USER}/"
+boot=`mktemp -d -p /tmp/${USER}`
+root=`mktemp -d -p /tmp/${USER}`
 mkdir -p ${boot}
+mkdir -p ${root}
 
 if beginswith /dev/mmcblk "${disk}" ;then
-  dev="${disk}p1"
+  dev1="${disk}p1"
+  dev2="${disk}p2"
 elif beginswith /dev/loop "${disk}" ;then
-  dev="${disk}p1"
+  dev1="${disk}p1"
+  dev2="${disk}p2"
 else
-  dev="${disk}1"
+  dev1="${disk}1"
+  dev2="${disk}2"
 fi
 
-echo "Mounting ${dev} to customize..."
-FS_TYPE=$(sudo blkid -o value -s TYPE "${dev}" || echo vfat)
-sudo mount -t ${FS_TYPE} "${dev}" "${boot}"
+FS_TYPE=$(sudo blkid -o value -s TYPE "${dev1}" || echo vfat)
+echo "Mounting ${dev1} on ${boot}"
+sudo mount -t ${FS_TYPE} "${dev1}" "${boot}"
+FS_TYPE=$(sudo blkid -o value -s TYPE "${dev2}" || echo ext4)
+echo "Mounting ${dev2} on ${root}"
+sudo mount -t ${FS_TYPE} "${dev2}" "${root}"
 
- if [ -f "${CONFIG_FILE}" ]; then
-    if [[ "${CONFIG_FILE}" == *"occi"* ]]; then
-      echo "Copying ${CONFIG_FILE} to ${boot}/occidentalis.txt ..."
-      cp "${CONFIG_FILE}"  "${boot}/occidentalis.txt"
-    else
-      echo "Copying ${CONFIG_FILE} to ${boot}/device-init.yaml ..."
-      cp "${CONFIG_FILE}"  "${boot}/device-init.yaml"
-    fi
-  fi
-
-  if [[ -f "${BOOT_CONF}" ]]; then
-    echo "Copying ${BOOT_CONF} to ${boot}/config.txt ..."
-    sudo cp "${BOOT_CONF}" "${boot}/config.txt"
-  fi
-
-  if [ -f "${USER_DATA}" ]; then
-    echo "Copying cloud-init ${USER_DATA} to ${boot}/user-data ..."
-    sudo cp "${USER_DATA}" "${boot}/user-data"
-  fi
-
-  if [ -f "${META_DATA}" ]; then
-    echo "Copying cloud-init ${META_DATA} to ${boot}/meta-data ..."
-    sudo cp "${META_DATA}" "${boot}/meta-data"
-  fi
+echo "Labeling root partition"
+sudo e2label "${dev2}" root
 
 
-if [ -f "${boot}/device-init.yaml" ]; then
-  echo "Setting device-init"
-  if [ ! -z "${SD_HOSTNAME}" ]; then
-    echo "  Set hostname=${SD_HOSTNAME}"
-    sudo sed -i -e "s/.*hostname:.*\$/hostname: ${SD_HOSTNAME}/" "${boot}/device-init.yaml"
-  fi
-  if [ ! -z "${WIFI_SSID}" ]; then
-    echo "  Set wlan0/ssid=${WIFI_SSID}"
-    sudo sed -i -e "s/.*wlan0:.*\$/    wlan0:/" "${boot}/device-init.yaml"
-    sudo sed -i -e "s/.*ssid:.*\$/      ssid: \"${WIFI_SSID}\"/" "${boot}/device-init.yaml"
-  fi
-  if [ ! -z "${WIFI_PASSWORD}" ]; then
-    echo "  Set wlan0/password=${WIFI_PASSWORD}"
-    sudo sed -i -e "s/.*wlan0:.*\$/    wlan0:/" "${boot}/device-init.yaml"
-    sudo sed -i -e "s/.*password:.*\$/      password: \"${WIFI_PASSWORD}\"/" "${boot}/device-init.yaml"
-  fi
-  if [ ! -z "${CLUSTERLAB}" ]; then
-    echo "  Set Cluster-Lab/run_on_boot=${CLUSTERLAB}"
-    sudo sed -i -e "s/.*run_on_boot.*\$/    run_on_boot: \"${CLUSTERLAB}\"/" "${boot}/device-init.yaml"
-  fi
+if [[ -z RASPBIAN_MODE ]]; then
+  configure_hypriot ${boot} ${root}
+else
+  configure_raspbian ${boot} ${root}
 fi
 
- # cloud-init
-  if [ -f "${boot}/user-data" ]; then
-    if [ ! -z "${SD_HOSTNAME}" ]; then
-      echo "Set hostname=${SD_HOSTNAME}"
-      sudo sed -i -e "s/.*hostname:.*\$/hostname: ${SD_HOSTNAME}/" "${boot}/user-data"
-    fi
-
-    if [ ! -f "${boot}/meta-data" ]; then
-      echo "Creating empty meta-data"
-      sudo touch "${boot}/meta-data"
-    fi
-  fi
-# legacy: /boot/occidentalis.txt of old Hector release
-if [ -f "${boot}/occidentalis.txt" ]; then
-  echo "Setting Occidentalis"
-  if [ ! -z "${SD_HOSTNAME}" ]; then
-    echo "  Set hostname=${SD_HOSTNAME}"
-    sudo sed -i -e "s/.*hostname.*=.*\$/hostname=${SD_HOSTNAME}/" "${boot}/occidentalis.txt"
-  fi
-  if [ ! -z "${WIFI_SSID}" ]; then
-    echo "Set wifi_ssid=${WIFI_SSID}"
-    sudo sed -i -e "s/.*wifi_ssid.*=.*\$/wifi_ssid=${WIFI_SSID}/" "${boot}/occidentalis.txt"
-  fi
-  if [ ! -z "${WIFI_PASSWORD}" ]; then
-    echo "Set wifi_password=${WIFI_PASSWORD}"
-    sudo sed -i -e "s/.*wifi_password.*=.*\$/wifi_password=${WIFI_PASSWORD}/" "${boot}/occidentalis.txt"
-  fi
-fi
-
-echo "Unmounting ${disk} ..."
 sleep 1
 
 for i in $(df | grep "${disk}" | awk '{print $1}')
 do
+  echo "Unmounting disk ${i} ..."
   sudo umount "$i"
 done
 
 if [ $? -eq 0 ]; then
   rmdir ${boot}
+  rmdir ${root}
   echo "Finished."
 else
   echo "Something went wrong."
